@@ -9,4 +9,4 @@ while True:
     led(0)
     time.sleep(1)
     serial0.write('sibainu')
-    print('こんにちは　柴犬!!')
+    print('こんにちは　柴犬!!!!')
