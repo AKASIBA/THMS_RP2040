@@ -2,6 +2,8 @@ from machine import UART, ADC
 from machine import Pin, I2C
 import time
 import binascii
+import os
+import uio
 
 ini_data = '01100500:000500:000500:000500:000500:000500:000601001011231143000\
 41.90176140.680006021101010202500:0000:001010212500:0000:0010060'
@@ -124,8 +126,9 @@ def uart_write(send_data, xbee_adr):
 
 
 def thermo(com):
-
     status_k = '>加温機:OFF'
+    led_kaonki(1)
+
     return status_k
 
 
@@ -150,8 +153,17 @@ def relay_2(com):
 
 
 def main():
-    now_time = time.ticks_ms()
-    ds_time = time.ticks_ms()
+    global ini_data
+    ct_sw = False
+    on_test = False
+    test_dic = {}
+    try:
+        f = uio.open('conf.txt', mode='r')
+        ini_data = f.read()
+        f.close()
+    except IOError:
+        print('設定ファイルがありません')
+    now_time = ds_time = c_time = test_time = time.ticks_ms()
     time_calibration()
     button = ini_data[:2]
     command_k = ini_data[:49]
@@ -176,17 +188,67 @@ def main():
             command_s = button + uart_data[84:108]
             command_r = button + uart_data[108:129]
             i_time = uart_data[129:]
+            ct_sw = True
+            test_dic['02'] = int(command_k[-3:]) * 1000
+            test_dic['03'] = int(command_d[-3:]) * 1000
+            test_dic['09'] = int(command_r[-3:]) * 1000
+            if button == '01':
+                try:
+                    os.remove('conf.txt')
+                except OSError:
+                    pass
+                conf = uart_data[:129]
+                f = uio.open('conf.txt', mode='w')
+                f.write(conf)
+                f.close()
             print('button', button)
             print('kaonki', command_k)
             print('densyou', command_d)
             print('sidewall', command_s)
             print('relay', command_r)
-            print('i_time', i_time)
-            if button in ['07', '08']: relay_1(button)
-            if button in ['01', '02']: status_k = thermo(command_k)
-            if button in ['01', '03']: status_d = light(command_d)
-            if button in ['04', '05', '06']: status_s = light(command_s)
-            if button in ['01', '09']: status_d = light(command_d)
+            print('i_time', i_time)  #
+        if button in ['02', '03', '09'] and ct_sw:  # test button
+            if not on_test: test_time = time.ticks_ms()
+            led_test(1)
+            on_test = True
+            if button == '02':
+                kaonki(1)
+                status_k = '>加温機:TEST'
+            if button == '03':
+                densyou(1)
+                status_d = '>電照:TEST'
+            if button == '09':
+                relay2(1)
+                status_r = '>リレー2:TEST'
+            if time.ticks_diff(time.ticks_ms(), test_time) >= test_dic[button]:
+                led_test(0)
+                kaonki(0)
+                densyou(0)
+                relay2(0)
+                ct_sw = False
+                on_test = False
+        if button in ['07', '08']: relay_1(button)
+        if time.ticks_diff(time.ticks_ms(), c_time) >= 1000:
+            c_time = time.ticks_ms()
+            if not on_test:
+                if command_k[2:4] == '11':
+                    status_k = thermo(command_k)
+                else:
+                    status_k = '>加温機:停止'
+                    led_kaonki(0)
+                if command_d[2:4] == '11':
+                    status_d = light(command_d)
+                else:
+                    status_d = '>電照:停止'
+                if button in ['04', '05', '06'] or command_s[2:4] == '11':
+                    status_s = sidewall(command_s)
+                else:
+                    status_s = '>巻上:停止'
+                if command_r[2:4] == '11':
+                    status_r = relay_2(command_r)
+                else:
+                    status_r = '>リレー2:OFF'
+
         if time.ticks_diff(time.ticks_ms(), ds_time) >= 30000:
             ds_time = time.ticks_ms()
             dt = rtc.readfrom_mem(0X68, 0, 7)
