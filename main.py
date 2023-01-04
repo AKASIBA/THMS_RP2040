@@ -4,6 +4,7 @@ import time
 import binascii
 import os
 import uio
+import math
 
 ser1 = Pin(0, Pin.OUT, value=0)  # serial pin initials
 ser2 = Pin(1, Pin.OUT, value=0)  # serial pin initials
@@ -23,8 +24,8 @@ led_time = Pin(19, Pin.OUT, value=0)
 led_temp = Pin(20, Pin.OUT, value=0)
 led_remote = Pin(21, Pin.OUT, value=0)
 led_sidewall = Pin(22, Pin.OUT, value=0)
-led_densyou = Pin(23, Pin.OUT, value=0)
-led_kaonki = Pin(14, Pin.OUT, value=0)
+led_densyou = Pin(13, Pin.OUT, value=0)  # Pin23
+led_kaonki = Pin(14, Pin.OUT, value=0)  # Pin24
 led_test = Pin(25, Pin.OUT, value=0)
 adc_temp = ADC(Pin(26))
 adc_ex = ADC(Pin(28))
@@ -37,6 +38,25 @@ def db(d): return (d // 10) << 4 | (d % 10)
 
 
 def bx(b): return '{:x}'.format(b)
+
+
+def days(m, d):
+    days = 0
+    m_day = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    for i in range(m - 1):
+        days = days + m_day[i]
+    days = days + d
+    return days
+
+
+def pr(x):
+    p = 3.14159265359
+    if x > p:
+        if (x // p) % 2 == 1:
+            x = x % p - p
+        else:
+            x = x % p
+    return x
 
 
 def time_calibration():
@@ -154,12 +174,50 @@ def thermo(com, st_dt):
         kaonki(0)
         status_k = '>加温機:OFF ' + mes_t
         # ks = 0
-
     return status_k
 
 
 def light(com, st_dt):
-    status_d = '>電照:OFF'
+    status_d = '>電照稼働中'
+    it_dt = int(st_dt[4:6]) * 60 + int(st_dt[6:])
+    led_densyou(1)
+    start_day = days(int(com[2:4]), int(com[4:6]))
+    end_day = days(int(com[6:8]), int(com[8:10]))
+    longitude = float(com[16:24])
+    latitude = float(com[24:32])
+    offset = int(com[14:16])
+    day_times = int(com[10:12]) * 60 + int(com[12:14])  # 日長
+    td = days(int(st_dt[:2]), int(st_dt[2:4]))  # 通算日
+    pi = 3.1415926536
+    ido = longitude * pi / 180  # degree>radian
+    k = (td - 1) * 2 * pi / 365
+    dl = 0.007 - 0.4 * math.cos(pr(k)) + 0.070257 * math.sin(pr(k)) - \
+         0.00676 * math.cos(pr(2 * k)) + 0.001 * math.sin(pr(2 * k)) - 0.0027 * math.cos(pr(3 * k)) + 0.0015 * math.sin(
+        pr(3 * k))
+    et = (0.0172 + 0.43 * math.cos(pr(k)) - 7.35 * math.sin(pr(k)) - 3.35 * math.cos(pr(2 * k)) - 9.362 * math.sin(
+        pr(2 * k))) / 60
+    cn = (21 - et - latitude / 15) * 60
+    om = math.acos((-0.0157 - math.sin(ido) * math.sin(pr(dl))) / (math.cos(ido) * math.cos(pr(dl))))
+    ss = round(1260 - et * 60 + om * 720 / pi - latitude * 4) + offset  # 開始時間
+    br = round(day_times - ss + cn * 2)  # 終了時間
+    d = (ss - cn) * 2
+
+    if day_times > d:
+        if start_day < td < end_day or start_day > end_day and (td > start_day or td < end_day):
+            dk = str(ss // 60) + ':' + str(ss % 60) + '-' + str(br // 60) + ':' + str(br % 60)
+            #if it_dt >= ss and bt:
+            if it_dt >= ss:
+                densyou(1)
+                status_d = '>電照ON' + dk
+                bt = False
+            if it_dt >= br or it_dt < ss:
+                densyou(0)
+                status_d = '>電照OFF' + dk
+        else:
+            status_d = '>電照稼働中'
+    dk = str(ss // 60) + ':' + str(ss % 60) + '-' + str(br // 60) + ':' + str(br % 60)
+    print(dk)
+
     return status_d
 
 
@@ -230,7 +288,6 @@ def main():
             for i in range(6):
                 it_dt = int(uart_data[16 + (5 * i):18 + (5 * i)]) * 60 + int(uart_data[19 + (5 * i):21 + (5 * i)])
                 command_k[it_dt] = int(uart_data[4 + (2 * i):6 + (2 * i)])
-            # command_k = uart_data[2:49]
             command_d = uart_data[49:84]
             command_s = uart_data[84:108]
             command_r = uart_data[108:129]
@@ -256,6 +313,8 @@ def main():
             print('i_time', i_time)  #
         if button in ['02', '03', '09'] and ct_sw:  # test button
             led_test(1)
+            if not on_test:
+                test_time = time.ticks_ms()
             on_test = True
             if button == '02':
                 kaonki(1)
@@ -266,8 +325,6 @@ def main():
             if button == '09':
                 relay2(1)
                 status_r = '>リレー2:TEST'
-            if not on_test:
-                test_time = time.ticks_ms()
             if time.ticks_diff(time.ticks_ms(), test_time) >= test_dic[button]:
                 led_test(0)
                 kaonki(0)
@@ -287,20 +344,24 @@ def main():
                 else:
                     status_k = '>加温機:停止'
                     led_kaonki(0)
-                    kaonki(1)
+                    kaonki(0)
                 if sw_d == '11':
                     status_d = light(command_d, st_dt)
                 else:
                     status_d = '>電照:停止'
+                    led_densyou(0)
+                    densyou(0)
                 if button in ['04', '05', '06'] or sw_s == '11':
                     status_s = sidewall(command_s, st_dt)
                 else:
                     status_s = '>巻上:停止'
+                    led_sidewall(0)
+
                 if sw_r == '11':
                     status_r = relay_2(command_r, st_dt)
                 else:
                     status_r = '>リレー2:停止'
-
+                    relay2(0)
         if time.ticks_diff(time.ticks_ms(), ds_time) >= 30000:
             ds_time = time.ticks_ms()
             dt = rtc.readfrom_mem(0X68, 0, 7)
@@ -314,7 +375,7 @@ def main():
             mes_k = 's0100001' + temp + status_k + status_d + status_s + status_r
             uart_write(mes_k, adr)
             print(mes_k, st_dt)
-        time.sleep(0.1)
+        time.sleep(0.2)
 
 
 main()
