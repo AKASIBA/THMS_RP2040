@@ -31,6 +31,7 @@ adc_temp = ADC(Pin(26))
 adc_ex = ADC(Pin(28))
 buf_t = bytearray(7)
 ser = UART(0, tx=Pin(0), rx=Pin(1))
+temp_offset = 53.3
 time.sleep(20)
 
 
@@ -157,13 +158,12 @@ def thermo(com, st_dt):
         t2 = max([t2 for t2 in com if t2 <= it_dt])
     except:
         t2 = max([t2 for t2 in com])
-    print(it_dt, t2, t1)
     temp_d = int(com[t2])
     mes_t = str(t2 // 60) + ':' + '{:0>2}'.format(t2 % 60) + '-' + str(t1 // 60) + ':' + \
             '{:0>2}'.format(t1 % 60) + ' ' + str(temp_d) + '℃'
-    t = adc_temp.read_u16() * 0.0050355 - 55.3
+    t = adc_temp.read_u16() * 0.0050355 - temp_offset
     print('t', t)
-    status_k = '>加温機:OFF' + mes_t
+    status_k = '>加温機:' + mes_t
     # if ks == 0: status_k = '>加温機:OFF'+mes_t
     if temp_d >= t:
         # ks = 1
@@ -243,7 +243,6 @@ def side_manu(com):
 
 
 def sidewall(com, st_dt):
-
     status_s = '>巻上:OFF'
     return status_s
 
@@ -254,7 +253,39 @@ def relay_1(com):
 
 
 def relay_2(com, st_dt):
-    relay = '>リレー:OFF'
+    mes = ''
+    it_nt = int(st_dt[4:6]) * 60 + int(st_dt[6:])
+    rel_sel = com[2:4]
+    rel_temp = int(com[4:6])
+    rel_time = com[6:11] + '-' + com[11:16]
+    re_on_time = int(com[6:8]) * 60 + int(com[9:11])
+    re_off_time = int(com[11:13]) * 60 + int(com[14:16])
+    t = adc_temp.read_u16() * 0.0050355 - temp_offset
+    if rel_sel == '21':
+        if t >= rel_temp:
+            relay2(1)
+            mes = 'ON' + com[4:6] + '℃'
+        elif t < rel_temp - 3:
+            relay2(0)
+            mes = 'OFF' + com[4:6] + '℃'
+        else:
+            mes = com[4:6] + '℃'
+    if rel_sel == '22':
+        if re_on_time < re_off_time:
+            if re_on_time <= it_nt < re_off_time:
+                relay2(1)
+                mes = 'ON' + rel_time
+            else:
+                relay2(0)
+                mes = 'OFF' + rel_time
+        if re_on_time < re_off_time:
+            if re_on_time >= it_nt > re_off_time:
+                relay2(0)
+                mes = 'OFF' + rel_time
+            else:
+                relay2(1)
+                mes = 'ON' + rel_time
+    relay = '>リレー2:' + mes
     return relay
 
 
@@ -262,7 +293,7 @@ def main():
     ini_data = '0110050505050500:0000:0000:0000:0000:0000:000601001011231000000\
 41.90176140.680006021101010202500:0000:001010212500:0000:0010060'
     global uart_data
-    ct_sw = on_test = o = d = False
+    ct_sw = on_test = o = s_evry = r_evry = False
     sw_on = p = True
     mes_s = ''
     test_dic = command_k = {}
@@ -305,7 +336,7 @@ def main():
             sw_k = uart_data[2:4]
             sw_d = uart_data[49:51]
             sw_s = uart_data[90:92]
-            sw_r = uart_data[106:108]
+            sw_r = uart_data[108:110]
             for i in range(6):
                 it_dt = int(uart_data[16 + (5 * i):18 + (5 * i)]) * 60 + int(uart_data[19 + (5 * i):21 + (5 * i)])
                 command_k[it_dt] = int(uart_data[4 + (2 * i):6 + (2 * i)])
@@ -313,11 +344,12 @@ def main():
             command_s = uart_data[84:108]
             command_r = uart_data[108:129]
             i_time = uart_data[129:]  #
-            ct_sw = d = True
+            ct_sw = True
             test_dic['02'] = int(uart_data[46:49]) * 1000
             test_dic['03'] = int(command_d[-3:]) * 1000
             test_dic['09'] = int(command_r[-3:]) * 1000
             if button == '01':
+                s_evry = r_evry = True
                 try:
                     os.remove('conf.txt')
                 except OSError:
@@ -383,7 +415,7 @@ def main():
                     if command_s[9] == '1':  # 温度
                         mes_s = command_s[10:12] + '℃'
                         c_temp = int(command_s[10:12])
-                        a_temp = adc_temp.read_u16() * 0.0050355 - 55.3
+                        a_temp = adc_temp.read_u16() * 0.0050355 - temp_offset
                         if sw_on:
                             if a_temp >= c_temp + 3:  # open
                                 sw_on_t = time.ticks_ms()
@@ -402,9 +434,9 @@ def main():
                                 sidewall_R(0)
                                 sidewall_L(0)
                                 sidewall_ex(0)
-                        if time.ticks_diff(time.ticks_ms(), sw_on_t) >= 30000:  # 300000
+                        if time.ticks_diff(time.ticks_ms(), sw_on_t) >= 300000:  # 300000
                             sw_on = True
-                    if command_s[9] == '2' and d:  # 時間
+                    if command_s[9] == '2' and s_evry:  # 時間
                         sw_time = command_s[12:17] + '-' + command_s[17:22]
                         open_time = int(command_s[12:14]) * 60 + int(command_s[15:17])
                         close_time = int(command_s[17:19]) * 60 + int(command_s[20:22])
@@ -416,7 +448,7 @@ def main():
                             print('time_open')
                             p = False
                             o = True
-                            mes_s = sw_time + '開'
+                            mes_s = '開' + sw_time
                         if it_nt >= close_time and not p:
                             sidewall_R(r)
                             sidewall_L(l)
@@ -425,26 +457,31 @@ def main():
                             print('time_close')
                             p = True
                             o = True
-                            mes_s = sw_time + '閉'
-                        if time.ticks_diff(time.ticks_ms(), off_time) >= 60000 and o:
+                            mes_s = '閉' + sw_time
+                        if time.ticks_diff(time.ticks_ms(), off_time) >= 300000 and o:
                             sidewall_R(0)
                             sidewall_L(0)
                             sidewall_ex(0)
                             if command_s[22:] == '11':
-                                d = True
+                                s_evry = True
                                 mes_s = sw_time
                             if command_s[22:] == '10' and p:
-                                d = False
-                                mes_s = "リモート ON"
+                                s_evry = False
+                                mes_s = "リモート"
                             o = False
                     status_s = '>巻上:' + mes_s
-                    # status_s = sidewall(command_s, st_dt)
                 else:
                     status_s = '>巻上:停止'
                     led_sidewall(0)
-
-                if sw_r == '11':
+                    sidewall_R(0)
+                    sidewall_L(0)
+                    sidewall_ex(0)
+                if sw_r == '11' and r_evry:
                     status_r = relay_2(command_r, st_dt)
+                    if command_r[17] == '1' or command_r[3] == '1':
+                        r_evry = True
+                    else:
+                        r_evry = False
                 else:
                     status_r = '>リレー2:停止'
                     relay2(0)
@@ -456,7 +493,7 @@ def main():
             led_test(1)
             time.sleep(0.1)
             led_test(0)
-            t = adc_temp.read_u16() * 0.0050355 - 55.3
+            t = adc_temp.read_u16() * 0.0050355 - temp_offset
             temp = '>温度:' + '{:0.1f}'.format(t) + '℃'
             mes_k = 's0100001' + temp + status_k + status_d + status_s + status_r
             uart_write(mes_k, adr)
