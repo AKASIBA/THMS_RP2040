@@ -162,17 +162,13 @@ def thermo(com, st_dt):
     mes_t = str(t2 // 60) + ':' + '{:0>2}'.format(t2 % 60) + '-' + str(t1 // 60) + ':' + \
             '{:0>2}'.format(t1 % 60) + ' ' + str(temp_d) + '℃'
     t = adc_temp.read_u16() * 0.0050355 - temp_offset
-    print('t', t)
     status_k = '>加温機:' + mes_t
-    # if ks == 0: status_k = '>加温機:OFF'+mes_t
     if temp_d >= t:
-        # ks = 1
         kaonki(1)
         status_k = '>加温機:ON ' + mes_t
     if temp_d + 3 <= t:  # ヒステリシス暫定
         kaonki(0)
         status_k = '>加温機:OFF ' + mes_t
-        # ks = 0
     return status_k
 
 
@@ -204,19 +200,14 @@ def light(com, st_dt):
     if day_times > d:
         if start_day < td < end_day or start_day > end_day and (td > start_day or td < end_day):
             dk = str(ss // 60) + ':' + str(ss % 60) + '-' + str(br // 60) + ':' + str(br % 60)
-            # if it_dt >= ss and bt:
             if it_dt >= ss:
                 densyou(1)
                 status_d = '>電照ON' + dk
-                bt = False
             if it_dt >= br or it_dt < ss:
                 densyou(0)
                 status_d = '>電照OFF' + dk
         else:
             status_d = '>電照稼働中'
-    dk = str(ss // 60) + ':' + str(ss % 60) + '-' + str(br // 60) + ':' + str(br % 60)
-    print(dk)
-
     return status_d
 
 
@@ -305,6 +296,7 @@ def main():
         f = uio.open('conf.txt', mode='r')
         ini_data = f.read()
         f.close()
+        s_evry = r_evry = True
     except Exception as e:
         print(e)
         print('設定ファイルがありません')
@@ -315,9 +307,9 @@ def main():
         command_k[it_dt] = int(ini_data[4 + (2 * i):6 + (2 * i)])
     sw_d = ini_data[49:51]
     command_d = ini_data[49:84]
-    sw_s = ini_data[88:90]
+    sw_s = ini_data[90:92]
     command_s = ini_data[84:108]
-    sw_r = ini_data[106:108]
+    sw_r = ini_data[108:110]
     command_r = ini_data[108:129]
     status_k = thermo(command_k, st_dt)
     status_d = light(command_d, st_dt)
@@ -325,7 +317,7 @@ def main():
     status_r = relay_2(command_r, st_dt)
     time_calibration()
     while True:
-        if time.ticks_diff(time.ticks_ms(), now_time) >= 864000000:
+        if time.ticks_diff(time.ticks_ms(), now_time) >= 86400000:
             now_time = time.ticks_ms()
             time_calibration()
         uart_data = uart_read()
