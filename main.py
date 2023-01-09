@@ -17,15 +17,15 @@ kaonki = Pin(7, Pin.OUT, value=0)
 sidewall_R = Pin(8, Pin.OUT, value=0)
 sidewall_L = Pin(9, Pin.OUT, value=0)
 sidewall_ex = Pin(10, Pin.OUT, value=0)
-sw_light = Pin(16, Pin.IN, Pin.PULL_UP)
-sw_left = Pin(17, Pin.IN, Pin.PULL_UP)
-sw_remote = Pin(18, Pin.IN, Pin.PULL_UP)
+sw_close = Pin(16, Pin.IN, Pin.PULL_DOWN)
+sw_open = Pin(17, Pin.IN, Pin.PULL_DOWN)
+sw_remote = Pin(18, Pin.IN, Pin.PULL_DOWN)
 led_time = Pin(19, Pin.OUT, value=0)
 led_temp = Pin(20, Pin.OUT, value=0)
 led_remote = Pin(21, Pin.OUT, value=0)
 led_sidewall = Pin(22, Pin.OUT, value=0)
-led_densyou = Pin(13, Pin.OUT, value=0)  # Pin23
-led_kaonki = Pin(14, Pin.OUT, value=0)  # Pin24
+led_densyou = Pin(23, Pin.OUT, value=0)  # Pin23
+led_kaonki = Pin(24, Pin.OUT, value=0)  # Pin24
 led_test = Pin(25, Pin.OUT, value=0)
 adc_temp = ADC(Pin(26))
 adc_ex = ADC(Pin(28))
@@ -200,14 +200,22 @@ def light(com, st_dt):
     if day_times > d:
         if start_day < td < end_day or start_day > end_day and (td > start_day or td < end_day):
             dk = str(ss // 60) + ':' + str(ss % 60) + '-' + str(br // 60) + ':' + str(br % 60)
-            if it_dt >= ss:
-                densyou(1)
-                status_d = '>電照ON' + dk
-            if it_dt >= br or it_dt < ss:
-                densyou(0)
-                status_d = '>電照OFF' + dk
+            if ss < br:
+                if ss <= it_dt < br:
+                    densyou(1)
+                    status_d = '>電照:ON' + dk
+                else:
+                    densyou(0)
+                    status_d = '>電照:OFF' + dk
+            elif ss > br:
+                if ss >= it_dt > br:
+                    densyou(0)
+                    status_d = '>電照:OFF' + dk
+                else:
+                    densyou(1)
+                    status_d = '>電照:ON' + dk
         else:
-            status_d = '>電照稼働中'
+            status_d = '>電照:稼働中'
     return status_d
 
 
@@ -284,11 +292,13 @@ def main():
     ini_data = '0110050505050500:0000:0000:0000:0000:0000:000601001011231000000\
 41.90176140.680006021101010202500:0000:001010212500:0000:0010060'
     global uart_data
-    ct_sw = on_test = o = s_evry = r_evry = False
-    sw_on = p = True
+    ct_sw = on_test = o = s_evry = r_evry = sw_remo = False
+    sw_on = p = r_remo = True
+    c_rem = 0
     mes_s = ''
+    remo = 'OFF'  #
     test_dic = command_k = {}
-    now_time = ds_time = c_time = test_time = sw_on_t = off_time = time.ticks_ms()
+    now_time = ds_time = c_time = test_time = sw_on_t = off_time = sw_remo_t = time.ticks_ms()
     dt = rtc.readfrom_mem(0X68, 0, 7)
     st_dt = '{:0>2}'.format(bx(dt[5])) + '{:0>2}'.format(bx(dt[4])) + '{:0>2}'.format(bx(dt[2])) + '{:0>2}'.format(
         bx(dt[1]))
@@ -378,12 +388,53 @@ def main():
                 ct_sw = False
                 on_test = False
         if button in ['04', '05', '06'] and sw_s == '11' and command_s[:2] == '21':
+            s_manu = False
             rl = command_s[3] + command_s[5]
             com_side_manu = button + rl
             side_manu(com_side_manu)
+        else:
+            s_manu = True
         if button in ['07', '08']: relay_1(button)
+
+        if sw_remote.value() == 1 and not sw_remo:
+            c_rem = c_rem + 1
+            if c_rem >= 5 and r_remo:
+                remo = 'ON'
+                sw_remo_t = time.ticks_ms()
+                sb_manu = False
+                sw_remo = True
+                r_remo = False
+        if sw_remote.value() == 1 and sw_remo:
+            c_rem = c_rem + 1
+            if c_rem >= 5 and r_remo :
+                remo = 'OFF'
+                sb_manu = True
+                sw_remo = False
+                r_remo = False
+        if sw_remote.value() == 0:
+            c_rem = 0
+            r_remo = True
+        if time.ticks_diff(time.ticks_ms(), sw_remo_t) >= 1800000:  # 1800000
+            sb_manu = True
+            sw_remo = False
+            remo = 'OFF'
+        if sw_remo:
+            if sw_open.value() == 1:
+                sidewall_R(r)
+                sidewall_L(l)
+                sidewall_ex(0)
+            elif sw_close.value() == 1:
+                sidewall_R(r)
+                sidewall_L(l)
+                sidewall_ex(1)
+            else:
+                sidewall_R(0)
+                sidewall_L(0)
+                sidewall_ex(0)
+
         if time.ticks_diff(time.ticks_ms(), c_time) >= 1000:
             c_time = time.ticks_ms()
+            #print('open', sw_open.value(), 'close', sw_close.value(), 'remote', remo)
             if not on_test:
                 dt = rtc.readfrom_mem(0X68, 0, 7)
                 st_dt = '{:0>2}'.format(bx(dt[5])) + '{:0>2}'.format(bx(dt[4])) + '{:0>2}'.format(
@@ -401,68 +452,69 @@ def main():
                     status_d = '>電照:停止'
                     led_densyou(0)
                     densyou(0)
-                if sw_s == '11' and command_s[:2] == '22':  # 巻上
-                    r = int(command_s[3])
-                    l = int(command_s[5])
-                    if command_s[9] == '1':  # 温度
-                        mes_s = command_s[10:12] + '℃'
-                        c_temp = int(command_s[10:12])
-                        a_temp = adc_temp.read_u16() * 0.0050355 - temp_offset
-                        if sw_on:
-                            if a_temp >= c_temp + 3:  # open
-                                sw_on_t = time.ticks_ms()
-                                sw_on = False
+                if not sw_remo:
+                    if sw_s == '11' and command_s[:2] == '22':  # 巻上
+                        r = int(command_s[3])
+                        l = int(command_s[5])
+                        if command_s[9] == '1':  # 温度
+                            mes_s = command_s[10:12] + '℃'
+                            c_temp = int(command_s[10:12])
+                            a_temp = adc_temp.read_u16() * 0.0050355 - temp_offset
+                            if sw_on:
+                                if a_temp >= c_temp + 3:  # open
+                                    sw_on_t = time.ticks_ms()
+                                    sw_on = False
+                                    sidewall_R(r)
+                                    sidewall_L(l)
+                                    sidewall_ex(0)
+                                if a_temp < c_temp:  # close
+                                    sw_on_t = time.ticks_ms()
+                                    sw_on = False
+                                    sidewall_R(r)
+                                    sidewall_L(l)
+                                    sidewall_ex(1)
+                            if time.ticks_diff(time.ticks_ms(), sw_on_t) >= 3000:
+                                if not sw_on:
+                                    sidewall_R(0)
+                                    sidewall_L(0)
+                                    sidewall_ex(0)
+                            if time.ticks_diff(time.ticks_ms(), sw_on_t) >= 300000:  # 300000
+                                sw_on = True
+                        if command_s[9] == '2' and s_evry:  # 時間
+                            sw_time = command_s[12:17] + '-' + command_s[17:22]
+                            open_time = int(command_s[12:14]) * 60 + int(command_s[15:17])
+                            close_time = int(command_s[17:19]) * 60 + int(command_s[20:22])
+                            if open_time <= it_nt < close_time and p:
                                 sidewall_R(r)
                                 sidewall_L(l)
                                 sidewall_ex(0)
-                            if a_temp < c_temp:  # close
-                                sw_on_t = time.ticks_ms()
-                                sw_on = False
+                                off_time = time.ticks_ms()
+                                print('time_open')
+                                p = False
+                                o = True
+                                mes_s = '開' + sw_time
+                            if it_nt >= close_time and not p:
                                 sidewall_R(r)
                                 sidewall_L(l)
                                 sidewall_ex(1)
-                        if time.ticks_diff(time.ticks_ms(), sw_on_t) >= 3000:
-                            if not sw_on:
+                                off_time = time.ticks_ms()
+                                print('time_close')
+                                p = True
+                                o = True
+                                mes_s = '閉' + sw_time
+                            if time.ticks_diff(time.ticks_ms(), off_time) >= 300000 and o:
                                 sidewall_R(0)
                                 sidewall_L(0)
                                 sidewall_ex(0)
-                        if time.ticks_diff(time.ticks_ms(), sw_on_t) >= 300000:  # 300000
-                            sw_on = True
-                    if command_s[9] == '2' and s_evry:  # 時間
-                        sw_time = command_s[12:17] + '-' + command_s[17:22]
-                        open_time = int(command_s[12:14]) * 60 + int(command_s[15:17])
-                        close_time = int(command_s[17:19]) * 60 + int(command_s[20:22])
-                        if open_time <= it_nt < close_time and p:
-                            sidewall_R(r)
-                            sidewall_L(l)
-                            sidewall_ex(0)
-                            off_time = time.ticks_ms()
-                            print('time_open')
-                            p = False
-                            o = True
-                            mes_s = '開' + sw_time
-                        if it_nt >= close_time and not p:
-                            sidewall_R(r)
-                            sidewall_L(l)
-                            sidewall_ex(1)
-                            off_time = time.ticks_ms()
-                            print('time_close')
-                            p = True
-                            o = True
-                            mes_s = '閉' + sw_time
-                        if time.ticks_diff(time.ticks_ms(), off_time) >= 300000 and o:
-                            sidewall_R(0)
-                            sidewall_L(0)
-                            sidewall_ex(0)
-                            if command_s[22:] == '11':
-                                s_evry = True
-                                mes_s = sw_time
-                            if command_s[22:] == '10' and p:
-                                s_evry = False
-                                mes_s = "リモート"
-                            o = False
-                    status_s = '>巻上:' + mes_s
-                else:
+                                if command_s[22:] == '11':
+                                    s_evry = True
+                                    mes_s = sw_time
+                                if command_s[22:] == '10' and p:
+                                    s_evry = False
+                                    mes_s = "リモート"
+                                o = False
+                        status_s = '>巻上:' + mes_s
+                elif (sw_s == '10' or command_s[:2] == '22') and s_manu and sb_manu:
                     status_s = '>巻上:停止'
                     led_sidewall(0)
                     sidewall_R(0)
@@ -490,7 +542,7 @@ def main():
             mes_k = 's0100001' + temp + status_k + status_d + status_s + status_r
             uart_write(mes_k, adr)
             print(mes_k, st_dt)
-        time.sleep(0.5)
+        time.sleep(0.2)
 
 
 main()
