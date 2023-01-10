@@ -32,7 +32,7 @@ adc_ex = ADC(Pin(28))
 buf_t = bytearray(7)
 ser = UART(0, tx=Pin(0), rx=Pin(1))
 temp_offset = 53.3
-time.sleep(20)
+time.sleep(3)
 
 
 def db(d): return (d // 10) << 4 | (d % 10)
@@ -63,6 +63,7 @@ def pr(x):
 def time_calibration():
     w = 0
     uart_write('T', adr)
+    time.sleep(0.02)
     while True:
         uart_data = uart_read()
         if uart_data:
@@ -86,7 +87,7 @@ def time_calibration():
                 print('time calibration')
                 break
         w = w + 1
-        time.sleep(0.01)
+        time.sleep(0.05)
         if w > 100:
             set_time()
             break
@@ -291,12 +292,9 @@ def relay_2(com, st_dt):
 def main():
     ini_data = '0110050505050500:0000:0000:0000:0000:0000:000601001011231000000\
 41.90176140.680006021101010202500:0000:001010212500:0000:0010060'
-    # global uart_data
     ct_sw = on_test = o = s_evry = r_evry = sw_remo = False
     sw_on = p = r_remo = sb_manu = True
     c_rem = 0
-    mes_s = ''
-    remo = 'OFF'  #
     test_dic = command_k = {}
     now_time = ds_time = c_time = test_time = sw_on_t = off_time = sw_remo_t = time.ticks_ms()
     dt = rtc.readfrom_mem(0X68, 0, 7)
@@ -393,6 +391,8 @@ def main():
                 on_test = False
         if button in ['04', '05', '06'] and sw_s == '11' and command_s[:2] == '21':
             s_manu = False
+            led_time(0)
+            led_temp(0)
             rl = command_s[3] + command_s[5]
             com_side_manu = button + rl
             side_manu(com_side_manu)
@@ -458,10 +458,13 @@ def main():
                 if not sw_remo:
                     if sw_s == '11' and command_s[:2] == '22':  # 巻上
                         led_sidewall(1)
+                        mes_s = '作動'
                         if command_s[9] == '1':  # 温度
                             mes_s = command_s[10:12] + '℃'
                             c_temp = int(command_s[10:12])
                             a_temp = adc_temp.read_u16() * 0.0050355 - temp_offset
+                            led_time(0)
+                            led_temp(1)
                             if sw_on:
                                 if a_temp >= c_temp + 3:  # open
                                     sw_on_t = time.ticks_ms()
@@ -486,6 +489,8 @@ def main():
                             sw_time = command_s[12:17] + '-' + command_s[17:22]
                             open_time = int(command_s[12:14]) * 60 + int(command_s[15:17])
                             close_time = int(command_s[17:19]) * 60 + int(command_s[20:22])
+                            led_time(1)
+                            led_temp(0)
                             if open_time <= it_nt < close_time and p:
                                 sidewall_R(r)
                                 sidewall_L(l)
@@ -513,7 +518,7 @@ def main():
                                     mes_s = sw_time
                                 if command_s[22:] == '10' and p:
                                     s_evry = False
-                                    mes_s = "リモート"
+                                    mes_s = '作動'
                                 o = False
                         status_s = '>巻上:' + mes_s
                     elif (sw_s == '10' or command_s[:2] == '22') and s_manu and sb_manu:
@@ -522,6 +527,8 @@ def main():
                         sidewall_R(0)
                         sidewall_L(0)
                         sidewall_ex(0)
+                        led_time(0)
+                        led_temp(0)
                     if sw_r == '11' and r_evry:
                         status_r = relay_2(command_r, st_dt)
                         if command_r[17] == '1' or command_r[3] == '1':
