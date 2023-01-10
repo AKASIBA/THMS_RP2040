@@ -22,7 +22,7 @@ sw_open = Pin(17, Pin.IN, Pin.PULL_DOWN)
 sw_remote = Pin(18, Pin.IN, Pin.PULL_DOWN)
 led_time = Pin(19, Pin.OUT, value=0)
 led_temp = Pin(20, Pin.OUT, value=0)
-led_remote = Pin(21, Pin.OUT, value=0)
+led_sw_manu = Pin(21, Pin.OUT, value=0)
 led_sidewall = Pin(22, Pin.OUT, value=0)
 led_densyou = Pin(23, Pin.OUT, value=0)  # Pin23
 led_kaonki = Pin(24, Pin.OUT, value=0)  # Pin24
@@ -291,9 +291,9 @@ def relay_2(com, st_dt):
 def main():
     ini_data = '0110050505050500:0000:0000:0000:0000:0000:000601001011231000000\
 41.90176140.680006021101010202500:0000:001010212500:0000:0010060'
-    global uart_data
+    # global uart_data
     ct_sw = on_test = o = s_evry = r_evry = sw_remo = False
-    sw_on = p = r_remo = True
+    sw_on = p = r_remo = sb_manu = True
     c_rem = 0
     mes_s = ''
     remo = 'OFF'  #
@@ -320,6 +320,8 @@ def main():
     sw_s = ini_data[90:92]
     command_s = ini_data[84:108]
     sw_r = ini_data[108:110]
+    r = int(command_s[3])
+    l = int(command_s[5])
     command_r = ini_data[108:129]
     status_k = thermo(command_k, st_dt)
     status_d = light(command_d, st_dt)
@@ -339,6 +341,8 @@ def main():
             sw_d = uart_data[49:51]
             sw_s = uart_data[90:92]
             sw_r = uart_data[108:110]
+            r = int(command_s[3])
+            l = int(command_s[5])
             for i in range(6):
                 it_dt = int(uart_data[16 + (5 * i):18 + (5 * i)]) * 60 + int(uart_data[19 + (5 * i):21 + (5 * i)])
                 command_k[it_dt] = int(uart_data[4 + (2 * i):6 + (2 * i)])
@@ -396,28 +400,28 @@ def main():
             s_manu = True
         if button in ['07', '08']: relay_1(button)
 
-        if sw_remote.value() == 1 and not sw_remo:
+        if sw_remote.value() == 1 and not sw_remo:  # マニュアルスイッチ有効
             c_rem = c_rem + 1
             if c_rem >= 5 and r_remo:
-                remo = 'ON'
                 sw_remo_t = time.ticks_ms()
                 sb_manu = False
                 sw_remo = True
                 r_remo = False
-        if sw_remote.value() == 1 and sw_remo:
+                led_sw_manu(1)
+        if sw_remote.value() == 1 and sw_remo:  # マニュアルスイッチ無効
             c_rem = c_rem + 1
-            if c_rem >= 5 and r_remo :
-                remo = 'OFF'
+            if c_rem >= 5 and r_remo:
                 sb_manu = True
                 sw_remo = False
                 r_remo = False
+                led_sw_manu(0)
         if sw_remote.value() == 0:
             c_rem = 0
             r_remo = True
         if time.ticks_diff(time.ticks_ms(), sw_remo_t) >= 1800000:  # 1800000
             sb_manu = True
             sw_remo = False
-            remo = 'OFF'
+            led_sw_manu(0)
         if sw_remo:
             if sw_open.value() == 1:
                 sidewall_R(r)
@@ -434,7 +438,6 @@ def main():
 
         if time.ticks_diff(time.ticks_ms(), c_time) >= 1000:
             c_time = time.ticks_ms()
-            #print('open', sw_open.value(), 'close', sw_close.value(), 'remote', remo)
             if not on_test:
                 dt = rtc.readfrom_mem(0X68, 0, 7)
                 st_dt = '{:0>2}'.format(bx(dt[5])) + '{:0>2}'.format(bx(dt[4])) + '{:0>2}'.format(
@@ -454,8 +457,7 @@ def main():
                     densyou(0)
                 if not sw_remo:
                     if sw_s == '11' and command_s[:2] == '22':  # 巻上
-                        r = int(command_s[3])
-                        l = int(command_s[5])
+                        led_sidewall(1)
                         if command_s[9] == '1':  # 温度
                             mes_s = command_s[10:12] + '℃'
                             c_temp = int(command_s[10:12])
@@ -514,21 +516,21 @@ def main():
                                     mes_s = "リモート"
                                 o = False
                         status_s = '>巻上:' + mes_s
-                elif (sw_s == '10' or command_s[:2] == '22') and s_manu and sb_manu:
-                    status_s = '>巻上:停止'
-                    led_sidewall(0)
-                    sidewall_R(0)
-                    sidewall_L(0)
-                    sidewall_ex(0)
-                if sw_r == '11' and r_evry:
-                    status_r = relay_2(command_r, st_dt)
-                    if command_r[17] == '1' or command_r[3] == '1':
-                        r_evry = True
+                    elif (sw_s == '10' or command_s[:2] == '22') and s_manu and sb_manu:
+                        status_s = '>巻上:停止'
+                        led_sidewall(0)
+                        sidewall_R(0)
+                        sidewall_L(0)
+                        sidewall_ex(0)
+                    if sw_r == '11' and r_evry:
+                        status_r = relay_2(command_r, st_dt)
+                        if command_r[17] == '1' or command_r[3] == '1':
+                            r_evry = True
+                        else:
+                            r_evry = False
                     else:
-                        r_evry = False
-                else:
-                    status_r = '>リレー2:停止'
-                    relay2(0)
+                        status_r = '>リレー2:停止'
+                        relay2(0)
         if time.ticks_diff(time.ticks_ms(), ds_time) >= 30000:
             ds_time = time.ticks_ms()
             dt = rtc.readfrom_mem(0X68, 0, 7)
