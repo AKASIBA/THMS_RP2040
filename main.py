@@ -33,8 +33,7 @@ adc_ex = ADC(Pin(28))
 buf_t = bytearray(7)
 ser = UART(0, tx=Pin(0), rx=Pin(1))
 temp_offset = 53.3
-r = l = 0
-trig_r = rel_on = False
+trig_r = rel_on = r = l = False
 status_k = '>加温機:停止'
 status_r = '>リレー2:停止'
 time.sleep(3)
@@ -308,8 +307,8 @@ def main():
     global r, l, trig_r, status_k, status_r
     ini_data = '0110050505050500:0000:0000:0000:0000:0000:000601001011231000000\
 41.90176140.680006021101010202500:0000:001010212500:0000:0010060'
-    ct_sw = on_test = o = s_evry = sw_remo = trig_r = False
-    sw_on = p = r_remo = sb_manu = True
+    ct_sw = on_test = o = p = sp = s_evry = sw_remo = trig_r = False
+    sw_on = r_remo = sb_manu = True
     c_rem = 0
     mes_s = ''
     test_dic = command_k = {}
@@ -335,8 +334,8 @@ def main():
     sw_s = ini_data[90:92]
     command_s = ini_data[84:108]
     sw_r = ini_data[108:110]
-    r = int(command_s[3])
-    l = int(command_s[5])
+    r = not not int(command_s[3])
+    l = not not int(command_s[5])
     command_r = ini_data[108:129]
     status_k = thermo(command_k, st_dt)
     status_d = light(command_d, st_dt)
@@ -360,8 +359,8 @@ def main():
                 command_k[it_dt] = int(uart_data[4 + (2 * i):6 + (2 * i)])
             command_d = uart_data[49:84]
             command_s = uart_data[84:108]
-            r = int(command_s[3])
-            l = int(command_s[5])
+            r = not not int(command_s[3])
+            l = not not int(command_s[5])
             command_r = uart_data[108:129]
             i_time = uart_data[129:]  #
             ct_sw = True
@@ -370,6 +369,8 @@ def main():
             test_dic['09'] = int(command_r[-3:]) * 1000
             if button == '01':
                 s_evry = trig_r = True
+                sp = o = False
+                mes_s = ''
                 try:
                     os.remove('conf.txt')
                 except OSError:
@@ -409,26 +410,18 @@ def main():
             s_manu = False
             led_time(0)
             led_temp(0)
-            side_manu(button)
+            side_manu(button)  # リモート　マニュアル
         else:
             s_manu = True
-        if button in ['07', '08']: relay_1(button)
-        if sw_remote.value() == 1 and not sw_remo:  # マニュアルスイッチ有効
+        if sw_remote.value():  # マニュアルスイッチ
             c_rem = c_rem + 1
             if c_rem >= 5 and r_remo:
                 sw_remo_t = time.ticks_ms()
-                sb_manu = False
-                sw_remo = True
+                sb_manu = not sb_manu
+                sw_remo = not sw_remo
                 r_remo = False
-                led_sw_manu(1)
-        if sw_remote.value() == 1 and sw_remo:  # マニュアルスイッチ無効
-            c_rem = c_rem + 1
-            if c_rem >= 5 and r_remo:
-                sb_manu = True
-                sw_remo = False
-                r_remo = False
-                led_sw_manu(0)
-        if sw_remote.value() == 0:
+                led_sw_manu(sw_remo)
+        else:
             c_rem = 0
             r_remo = True
         if time.ticks_diff(time.ticks_ms(), sw_remo_t) >= 1800000:  # 1800000
@@ -436,11 +429,11 @@ def main():
             sw_remo = False
             led_sw_manu(0)
         if sw_remo:
-            if sw_open.value() == 1:
+            if sw_open.value():
                 sidewall_R(r)
                 sidewall_L(l)
                 sidewall_ex(0)
-            elif sw_close.value() == 1:
+            elif sw_close.value():
                 sidewall_R(r)
                 sidewall_L(l)
                 sidewall_ex(1)
@@ -448,6 +441,7 @@ def main():
                 sidewall_R(0)
                 sidewall_L(0)
                 sidewall_ex(0)
+        if button in ['07', '08']: relay_1(button)
         if time.ticks_diff(time.ticks_ms(), c_time) >= 1000:
             c_time = time.ticks_ms()
             if not on_test:
@@ -457,7 +451,6 @@ def main():
                 it_nt = int(bx(dt[2])) * 60 + int(bx(dt[1]))
                 if sw_k == '11':
                     thermo(command_k, st_dt)
-                    # status_k = thermo(command_k, st_dt)
                 else:
                     status_k = '>加温機:停止'
                     led_kaonki(0)
@@ -471,8 +464,8 @@ def main():
                 if not sw_remo:
                     if sw_s == '11' and command_s[:2] == '22':  # 巻上
                         led_sidewall(1)
-                        if not mes_s:
-                            mes_s = '作動中'
+                        # if not mes_s:
+                        #    mes_s = '作動中'
                         if command_s[9] == '1':  # 温度
                             mes_s = command_s[10:12] + '℃'
                             c_temp = int(command_s[10:12])
@@ -486,7 +479,7 @@ def main():
                                     sidewall_R(r)
                                     sidewall_L(l)
                                     sidewall_ex(0)
-                                if a_temp < c_temp:  # close
+                                elif a_temp < c_temp:  # close
                                     sw_on_t = time.ticks_ms()
                                     sw_on = False
                                     sidewall_R(r)
@@ -505,35 +498,58 @@ def main():
                             close_time = int(command_s[17:19]) * 60 + int(command_s[20:22])
                             led_time(1)
                             led_temp(0)
-                            if open_time <= it_nt < close_time and p:
-                                sidewall_R(r)
-                                sidewall_L(l)
-                                sidewall_ex(0)
-                                off_time = time.ticks_ms()
-                                print('time_open')
-                                p = False
-                                o = True
-                                mes_s = '開' + sw_time
-                            if it_nt >= close_time and not p:
-                                sidewall_R(r)
-                                sidewall_L(l)
-                                sidewall_ex(1)
-                                off_time = time.ticks_ms()
-                                print('time_close')
-                                p = True
-                                o = True
-                                mes_s = '閉' + sw_time
+                            if not mes_s:
+                                mes_s = sw_time
+                            if open_time < close_time:
+                                if open_time <= it_nt < close_time and p:
+                                    sidewall_R(r)
+                                    sidewall_L(l)
+                                    sidewall_ex(0)
+                                    off_time = time.ticks_ms()
+                                    print('time_open')
+                                    p = False
+                                    o = True
+                                    mes_s = '開' + sw_time
+                                elif it_nt >= close_time and not p:
+                                    sidewall_R(r)
+                                    sidewall_L(l)
+                                    sidewall_ex(1)
+                                    off_time = time.ticks_ms()
+                                    print('time_close')
+                                    p = True
+                                    o = True
+                                    sp = True
+                                    mes_s = '閉' + sw_time
+                            else:
+                                if open_time >= it_nt > close_time and p:
+                                    sidewall_R(r)
+                                    sidewall_L(l)
+                                    sidewall_ex(1)
+                                    off_time = time.ticks_ms()
+                                    print('time_close')
+                                    p = False
+                                    o = True
+                                    mes_s = '閉' + sw_time
+                                elif it_nt >= open_time and not p:
+                                    sidewall_R(r)
+                                    sidewall_L(l)
+                                    sidewall_ex(0)
+                                    off_time = time.ticks_ms()
+                                    print('time_open')
+                                    p = True
+                                    o = True
+                                    sp = True
+                                    mes_s = '開' + sw_time
                             if time.ticks_diff(time.ticks_ms(), off_time) >= 300000 and o:
                                 sidewall_R(0)
                                 sidewall_L(0)
                                 sidewall_ex(0)
-                                if command_s[22:] == '11':
-                                    s_evry = True
-                                    mes_s = sw_time
-                                if command_s[22:] == '10' and p:
-                                    s_evry = False
-                                    mes_s = '作動'
                                 o = False
+                            if command_s[22:] == '11':
+                                s_evry = True
+                            elif command_s[22:] == '10' and sp and not o:
+                                s_evry = False
+                                mes_s = '作動中'
                         status_s = '>巻上:' + mes_s
                     elif (sw_s == '10' or command_s[:2] == '22') and s_manu and sb_manu:
                         status_s = '>巻上:停止'
@@ -545,7 +561,6 @@ def main():
                         led_temp(0)
                 if sw_r == '11':
                     relay_2(command_r, st_dt)
-                    # status_r = relay_2(command_r, st_dt)
                 else:
                     status_r = '>リレー2:停止'
                     relay2(0)
