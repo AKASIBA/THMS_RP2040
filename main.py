@@ -577,6 +577,16 @@ def main():
             mes_k = 's0100001' + temp + status_k + status_d + status_s + status_r
             uart_write(mes_k, adr)
             print(mes_k, st_dt)
+            # webserver 温度表示
+            mes_temp = 'A01' + "{:05.1f}".format(t) + '温度:' + '{:0.1f}'.format(t) + '℃'
+            uart_write(mes_temp, adr)
+            print(mes_temp)
+            """
+            adc= adc_ex.read_u16()
+            mes_adc = 'a01' + "{:05.1f}".format(t)+adc ###
+            uart_write(mes_sdc, adr)
+            print('adc ex', adc)
+            """
         time.sleep(0.2)
 
 
