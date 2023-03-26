@@ -142,6 +142,7 @@ def uart_read():
             else:
                 print('reciev data')
                 str_data = str(binascii.unhexlify(uart_data[30:-2]).decode('utf-8'))
+                print(str_data)  #
                 return str_data
     except SyntaxError as e:
         print(e)
@@ -305,7 +306,7 @@ def relay_2(com, st_dt):
 
 def main():
     global r, l, trig_r, status_k, status_r
-    ini_data = '0110050505050500:0000:0000:0000:0000:0000:000601001011231000000\
+    ini_data = '011005050505050500:0000:0000:0000:0000:0000:000601001011231000000\
 41.90176140.680006021101010202500:0000:001010212500:0000:0010060'
     ct_sw = on_test = o = p = sp = s_evry = sw_remo = trig_r = False
     sw_on = r_remo = sb_manu = True
