@@ -18,9 +18,9 @@ kaonki = Pin(7, Pin.OUT, value=0)
 sidewall_R = Pin(8, Pin.OUT, value=0)
 sidewall_L = Pin(9, Pin.OUT, value=0)
 sidewall_ex = Pin(10, Pin.OUT, value=0)
-sw_close = Pin(16, Pin.IN, Pin.PULL_DOWN)
-sw_open = Pin(17, Pin.IN, Pin.PULL_DOWN)
-sw_remote = Pin(18, Pin.IN, Pin.PULL_DOWN)
+sw_close = Pin(16, Pin.IN, Pin.PULL_UP)
+sw_open = Pin(17, Pin.IN, Pin.PULL_UP)
+sw_remote = Pin(18, Pin.IN, Pin.PULL_UP)
 led_time = Pin(19, Pin.OUT, value=0)
 led_temp = Pin(20, Pin.OUT, value=0)
 led_sw_manu = Pin(21, Pin.OUT, value=0)
@@ -142,7 +142,6 @@ def uart_read():
             else:
                 print('reciev data')
                 str_data = str(binascii.unhexlify(uart_data[30:-2]).decode('utf-8'))
-                print(str_data)  #
                 return str_data
     except SyntaxError as e:
         print(e)
@@ -414,7 +413,7 @@ def main():
             side_manu(button)  # リモート　マニュアル
         else:
             s_manu = True
-        if sw_remote.value():  # マニュアルスイッチ
+        if not sw_remote.value():  # マニュアルスイッチ####
             c_rem = c_rem + 1
             if c_rem >= 5 and r_remo:
                 sw_remo_t = time.ticks_ms()
@@ -430,11 +429,11 @@ def main():
             sw_remo = False
             led_sw_manu(0)
         if sw_remo:
-            if sw_open.value():
+            if not sw_open.value():  # ###
                 sidewall_R(r)
                 sidewall_L(l)
                 sidewall_ex(0)
-            elif sw_close.value():
+            elif not sw_close.value():  # ###
                 sidewall_R(r)
                 sidewall_L(l)
                 sidewall_ex(1)
@@ -465,8 +464,6 @@ def main():
                 if not sw_remo:
                     if sw_s == '11' and command_s[:2] == '22':  # 巻上
                         led_sidewall(1)
-                        # if not mes_s:
-                        #    mes_s = '作動中'
                         if command_s[9] == '1':  # 温度
                             mes_s = command_s[10:12] + '℃'
                             c_temp = int(command_s[10:12])
