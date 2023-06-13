@@ -9,7 +9,6 @@ import math
 import onewire, ds18x20
 import sys
 
-
 ser1 = Pin(0, Pin.OUT, value=0)  # serial pin initials
 ser2 = Pin(1, Pin.OUT, value=0)  # serial pin initials
 adr = '0000000000000000'
@@ -173,18 +172,18 @@ def check_sum(hex_data):
 
 def uart_read():
     data_law = ser.readline()
-    try:
-        if data_law:
+    str_data = ''
+    if data_law:
+        try:
             uart_data = str(binascii.hexlify(data_law).decode('utf-8'))
             if uart_data[6:8] == '8b':  # acknowledge
                 print('DATA SEND SUCCESS !')
-            else:
+            elif uart_data[6:8] == '90':
                 print('reciev data')
                 str_data = str(binascii.unhexlify(uart_data[30:-2]).decode('utf-8'))
-                return str_data
-    except SyntaxError as e:
-        print(e)
-        pass
+        except Exception as e:
+            print(e)
+        return str_data
 
 
 def temp_read():
@@ -198,8 +197,6 @@ def temp_read():
 
 
 def xbee_reset():
-    # reset_comm = binascii.unhexlify('7e0004080166721e')
-    # ser.write(reset_comm)
     xbe_reset(0)
     time.sleep(0.1)
     xbe_reset(1)
@@ -232,7 +229,7 @@ def thermo(com, st_dt):
     temp_d = int(com[t2])
     mes_t = str(t2 // 60) + ':' + '{:0>2}'.format(t2 % 60) + '-' + str(t1 // 60) + ':' + \
             '{:0>2}'.format(t1 % 60) + ' ' + str(temp_d) + '℃'
-    #t = temp_read()
+    # t = temp_read()
     t = one_wire()
     # status_k = '>加温機:' + mes_t
     if temp_d >= t:
@@ -293,18 +290,22 @@ def light(com, st_dt):
 
 def side_manu(com):
     global r, l
-    if com[:2] == '04':  # open
+    if com == '04':  # open
         sidewall_R(r)
         sidewall_L(l)
         sidewall_ex(0)
-    if com[:2] == '05':  # off
-        sidewall_L(0)
-        sidewall_R(0)
-        sidewall_ex(0)
-    if com[:2] == '06':  # close
+        mes = '開'
+    elif com == '06':  # close
         sidewall_R(r)
         sidewall_L(l)
         sidewall_ex(1)
+        mes = '閉'
+    else:  # off
+        sidewall_L(0)
+        sidewall_R(0)
+        sidewall_ex(0)
+        mes = '停止'
+    return mes
 
 
 def sidewall(com, st_dt):
@@ -326,7 +327,7 @@ def relay_2(com, st_dt):
     rel_time = com[6:11] + '-' + com[11:16]
     re_on_time = int(com[6:8]) * 60 + int(com[9:11])
     re_off_time = int(com[11:13]) * 60 + int(com[14:16])
-    #t = temp_read()
+    # t = temp_read()
     t = one_wire()
     if rel_sel == '21':
         if t >= rel_temp:
@@ -401,7 +402,8 @@ def main():
     status_d = light(command_d, st_dt)
     status_s = sidewall(command_s, st_dt)
     status_r = relay_2(command_r, st_dt)
-    xbe_reset(1)
+    # xbe_reset(1)
+    xbee_reset()
     while True:
         if time.ticks_diff(time.ticks_ms(), now_time) >= 86400000:
             now_time = time.ticks_ms()
@@ -471,7 +473,7 @@ def main():
             s_manu = False
             led_time(0)
             led_temp(0)
-            side_manu(button)  # リモート　マニュアル
+            status_s = '>巻上:' + side_manu(button)  # リモート　マニュアル
         else:
             s_manu = True
         if not sw_remote.value():  # マニュアルスイッチ####
@@ -485,7 +487,7 @@ def main():
         else:
             c_rem = 0
             r_remo = True
-        if time.ticks_diff(time.ticks_ms(), sw_remo_t) >= 1800000:  # 1800000
+        if time.ticks_diff(time.ticks_ms(), sw_remo_t) >= 600000:  # 10minutes
             sb_manu = True
             sw_remo = False
             led_sw_manu(0)
@@ -631,7 +633,7 @@ def main():
             dt = rtc.readfrom_mem(0X68, 0, 7)
             st_dt = '{:0>2}'.format(bx(dt[5])) + '-' + '{:0>2}'.format(bx(dt[4])) + '-' + '{:0>2}'.format(
                 bx(dt[2])) + ':' + '{:0>2}'.format(bx(dt[1])) + ':' + '{:0>2}'.format(bx(dt[0]))
-            #t = temp_read()
+            # t = temp_read()
             t = one_wire()
             temp = '>温度:' + '{:0.1f}'.format(t) + '℃'
             mes_k = 's0100001' + temp + status_k + status_d + status_s + status_r
@@ -651,6 +653,7 @@ def main():
         time.sleep(0.2)
 
 
+set_time()
 try:
     main()
 except Exception as e:
