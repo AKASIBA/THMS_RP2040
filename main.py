@@ -88,11 +88,11 @@ def pr(x):
 def time_calibration():
     w = 0
     uart_write('T', adr)
-    time.sleep(0.02)
+    #time.sleep(0.5)
     while True:
         uart_data = uart_read()
         if uart_data:
-            # print(uart_data[:2])
+            print(uart_data[:2])
             if uart_data[:2] == '48':
                 try:
                     buf = bytearray(7)
@@ -116,9 +116,9 @@ def time_calibration():
                     print('time calibration error', te)
                     pass
         w = w + 1
-        time.sleep(0.05)
-        if w > 100:
-            set_time()
+        time.sleep(0.1)
+        if w > 50:
+            print('Time Calibration fail')
             break
 
 
@@ -181,8 +181,10 @@ def uart_read():
             elif uart_data[6:8] == '90':
                 print('reciev data')
                 str_data = str(binascii.unhexlify(uart_data[30:-2]).decode('utf-8'))
+                print(str_data)
         except Exception as e:
             print(e)
+            #xbee_reset()
         return str_data
 
 
@@ -404,6 +406,8 @@ def main():
     status_r = relay_2(command_r, st_dt)
     # xbe_reset(1)
     xbee_reset()
+    time.sleep(5)
+    time_calibration()
     while True:
         if time.ticks_diff(time.ticks_ms(), now_time) >= 86400000:
             now_time = time.ticks_ms()
