@@ -1,13 +1,14 @@
-import machine
-from machine import UART, ADC
-from machine import Pin, I2C
-import time
 import binascii
-import os
-import uio
+import machine
 import math
-import onewire, ds18x20
+import os
 import sys
+import time
+from machine import Pin, I2C
+from machine import UART, ADC
+import ds18x20
+import onewire
+import uio
 
 ser1 = Pin(0, Pin.OUT, value=0)  # serial pin initials
 ser2 = Pin(1, Pin.OUT, value=0)  # serial pin initials
@@ -31,33 +32,41 @@ led_densyou = Pin(23, Pin.OUT, value=0)  # Pin23
 led_kaonki = Pin(24, Pin.OUT, value=0)  # Pin24
 led_test = Pin(25, Pin.OUT, value=0)
 # adc_temp = ADC(Pin(26))
-#  adc_ex = ADC(Pin(28))
+# adc_ex = ADC(Pin(28))
 ow = onewire.OneWire(Pin(26))
 ds = ds18x20.DS18X20(ow)
-xbe_reset = Pin(28, Pin.OUT, value=0)
+xbe_reset = Pin(28, Pin.OUT, value=1)
 buf_t = bytearray(7)
 ser = UART(0, tx=Pin(0), rx=Pin(1))
 temp_offset = 53.3
 trig_r = rel_on = r = l = False
 status_k = '>加温機:停止'
 status_r = '>リレー2:停止'
-time.sleep(1)
 # t0 = adc_temp.read_u16() * 0.0050355 - temp_offset
-
-try:
-    roms = ds.scan()
-    rom = roms[0]
-    print('DS18_address', rom)
-except Exception as e:
-    print('温度センサーがありません', e)
-    sys.exit()
+while True:
+    try:
+        roms = ds.scan()
+        rom = roms[0]
+        print('DS18_address', rom)
+        break
+    except Exception as e:
+        print('温度センサーがありません', e)
+        led_test(1)
+        time.sleep(0.1)
+        led_test(0)
+        time.sleep(5)
 
 
 def one_wire():
-    ds.convert_temp()
-    time.sleep_ms(750)
-    temp = ds.read_temp(rom)
-    return temp
+    try:
+        ds.convert_temp()
+        time.sleep_ms(750)
+        temp = ds.read_temp(rom)
+        return temp
+    except Exception as e:
+        print('ds18b20_errer',e)
+        machine.reset()
+
 
 
 def db(d): return (d // 10) << 4 | (d % 10)
@@ -88,12 +97,11 @@ def pr(x):
 def time_calibration():
     w = 0
     uart_write('T', adr)
-    #time.sleep(0.5)
     while True:
         uart_data = uart_read()
         if uart_data:
             print(uart_data[:2])
-            if uart_data[:2] == '48':
+            if uart_data[:2] == '48' and len(uart_data) == 14:
                 try:
                     buf = bytearray(7)
                     now_y = int(uart_data[2:4])
@@ -119,6 +127,7 @@ def time_calibration():
         time.sleep(0.1)
         if w > 50:
             print('Time Calibration fail')
+            set_time()
             break
 
 
@@ -184,7 +193,8 @@ def uart_read():
                 print(str_data)
         except Exception as e:
             print(e)
-            #xbee_reset()
+            str_data = ''
+            # xbee_reset()
         return str_data
 
 
@@ -212,11 +222,15 @@ def uart_write(send_data, xbee_adr):
     send_data = '7e' + data_len + send_data
     send_data = send_data + check_sum(send_data)
     write_data = binascii.unhexlify(send_data)
-    ser.write(write_data)
-    print('send data')
+    try:
+        ser.write(write_data)
+        print('send data')
+    except Exception as e_u:
+        print(e_u)
+        pass
 
 
-def thermo(com, st_dt):
+def thermo(com, st_dt,t):
     global status_k
     it_dt = int(st_dt[4:6]) * 60 + int(st_dt[6:])
     led_kaonki(1)
@@ -232,7 +246,7 @@ def thermo(com, st_dt):
     mes_t = str(t2 // 60) + ':' + '{:0>2}'.format(t2 % 60) + '-' + str(t1 // 60) + ':' + \
             '{:0>2}'.format(t1 % 60) + ' ' + str(temp_d) + '℃'
     # t = temp_read()
-    t = one_wire()
+    #t = one_wire()
     # status_k = '>加温機:' + mes_t
     if temp_d >= t:
         kaonki(1)
@@ -320,7 +334,7 @@ def relay_1(com):
     if com == '08': relay1(0)
 
 
-def relay_2(com, st_dt):
+def relay_2(com, st_dt,t):
     global trig_r, rel_on, status_r
     it_nt = int(st_dt[4:6]) * 60 + int(st_dt[6:])
     evry_r = com[17]
@@ -330,7 +344,7 @@ def relay_2(com, st_dt):
     re_on_time = int(com[6:8]) * 60 + int(com[9:11])
     re_off_time = int(com[11:13]) * 60 + int(com[14:16])
     # t = temp_read()
-    t = one_wire()
+    #t = one_wire()
     if rel_sel == '21':
         if t >= rel_temp:
             relay2(1)
@@ -400,14 +414,11 @@ def main():
     r = not not int(command_s[3])
     l = not not int(command_s[5])
     command_r = ini_data[108:129]
-    status_k = thermo(command_k, st_dt)
+    t = one_wire()
+    status_k = thermo(command_k, st_dt,t)
     status_d = light(command_d, st_dt)
     status_s = sidewall(command_s, st_dt)
-    status_r = relay_2(command_r, st_dt)
-    # xbe_reset(1)
-    xbee_reset()
-    time.sleep(5)
-    time_calibration()
+    status_r = relay_2(command_r, st_dt,t)
     while True:
         if time.ticks_diff(time.ticks_ms(), now_time) >= 86400000:
             now_time = time.ticks_ms()
@@ -496,11 +507,11 @@ def main():
             sw_remo = False
             led_sw_manu(0)
         if sw_remo:
-            if not sw_open.value():  # ###
+            if not sw_open.value():
                 sidewall_R(r)
                 sidewall_L(l)
                 sidewall_ex(0)
-            elif not sw_close.value():  # ###
+            elif not sw_close.value():
                 sidewall_R(r)
                 sidewall_L(l)
                 sidewall_ex(1)
@@ -511,13 +522,14 @@ def main():
         if button in ['07', '08']: relay_1(button)
         if time.ticks_diff(time.ticks_ms(), c_time) >= 1000:
             c_time = time.ticks_ms()
+            t =one_wire()
             if not on_test:
                 dt = rtc.readfrom_mem(0X68, 0, 7)
                 st_dt = '{:0>2}'.format(bx(dt[5])) + '{:0>2}'.format(bx(dt[4])) + '{:0>2}'.format(
                     bx(dt[2])) + '{:0>2}'.format(bx(dt[1]))
                 it_nt = int(bx(dt[2])) * 60 + int(bx(dt[1]))
                 if sw_k == '11':
-                    thermo(command_k, st_dt)
+                    thermo(command_k, st_dt,t)
                 else:
                     status_k = '>加温機:停止'
                     led_kaonki(0)
@@ -534,17 +546,19 @@ def main():
                         if command_s[9] == '1':  # 温度
                             mes_s = command_s[10:12] + '℃'
                             c_temp = int(command_s[10:12])
-                            a_temp = one_wire()
+                            #a_temp = one_wire()
                             led_time(0)
                             led_temp(1)
                             if sw_on:
-                                if a_temp >= c_temp + 3:  # open
+                                #if a_temp >= c_temp + 3:  # open
+                                if t >= c_temp + 3:  # open
                                     sw_on_t = time.ticks_ms()
                                     sw_on = False
                                     sidewall_R(r)
                                     sidewall_L(l)
                                     sidewall_ex(0)
-                                elif a_temp < c_temp:  # close
+                                #elif a_temp < c_temp:  # close
+                                elif t < c_temp:  # close
                                     sw_on_t = time.ticks_ms()
                                     sw_on = False
                                     sidewall_R(r)
@@ -625,7 +639,7 @@ def main():
                         led_time(0)
                         led_temp(0)
                 if sw_r == '11':
-                    relay_2(command_r, st_dt)
+                    relay_2(command_r, st_dt,t)
                 else:
                     status_r = '>リレー2:停止'
                     relay2(0)
@@ -638,11 +652,12 @@ def main():
             st_dt = '{:0>2}'.format(bx(dt[5])) + '-' + '{:0>2}'.format(bx(dt[4])) + '-' + '{:0>2}'.format(
                 bx(dt[2])) + ':' + '{:0>2}'.format(bx(dt[1])) + ':' + '{:0>2}'.format(bx(dt[0]))
             # t = temp_read()
-            t = one_wire()
+            #t = one_wire()
             temp = '>温度:' + '{:0.1f}'.format(t) + '℃'
             mes_k = 's0100001' + temp + status_k + status_d + status_s + status_r
             uart_write(mes_k, adr)
             print(mes_k, st_dt)
+            time.sleep(0.1)
             # webserver 温度表示
             mes_temp = 'A01' + "{:05.1f}".format(t) + '温度:' + '{:0.1f}'.format(t) + '℃'
             uart_write(mes_temp, adr)
@@ -652,13 +667,14 @@ def main():
             mes_adc = 'a01' + "{:05.1f}".format(t)+adc ###
             uart_write(mes_sdc, adr)
             print('adc ex', adc)
-            # A0100100SIBAINU
             """
         time.sleep(0.2)
 
-
-set_time()
+main()
 try:
+    xbee_reset()
+    time.sleep(5)
+    time_calibration()
     main()
 except Exception as e:
     print(e)
