@@ -43,20 +43,6 @@ trig_r = rel_on = r = l = False
 status_k = '>加温機:停止'
 status_r = '>リレー2:停止'
 # t0 = adc_temp.read_u16() * 0.0050355 - temp_offset
-while True:
-    try:
-        roms = ds.scan()
-        rom = roms[0]
-        print('DS18_address', rom)
-        break
-    except Exception as e:
-        print('温度センサーがありません', e)
-        led_test(1)
-        time.sleep(0.1)
-        led_test(0)
-        time.sleep(5)
-
-
 def one_wire():
     try:
         ds.convert_temp()
@@ -198,7 +184,7 @@ def uart_read():
         return str_data
 
 
-def temp_read():
+def temp_read(): #MCP 9700
     global t0
     t = adc_temp.read_u16() * 0.0050355 - temp_offset
     if t0 - 1 < t < t0 - 1:
@@ -245,9 +231,6 @@ def thermo(com, st_dt,t):
     temp_d = int(com[t2])
     mes_t = str(t2 // 60) + ':' + '{:0>2}'.format(t2 % 60) + '-' + str(t1 // 60) + ':' + \
             '{:0>2}'.format(t1 % 60) + ' ' + str(temp_d) + '℃'
-    # t = temp_read()
-    #t = one_wire()
-    # status_k = '>加温機:' + mes_t
     if temp_d >= t:
         kaonki(1)
         status_k = '>加温機:ON ' + mes_t
@@ -283,7 +266,7 @@ def light(com, st_dt):
     d = (ss - cn) * 2
 
     if day_times > d:
-        if start_day < td < end_day or start_day > end_day and (td > start_day or td < end_day):
+        if start_day <= td <= end_day or start_day > end_day and (td >= start_day or td <= end_day):
             dk = str(ss // 60) + ':' + str(ss % 60) + '-' + str(br // 60) + ':' + str(br % 60)
             if ss < br:
                 if ss <= it_dt < br:
@@ -343,8 +326,6 @@ def relay_2(com, st_dt,t):
     rel_time = com[6:11] + '-' + com[11:16]
     re_on_time = int(com[6:8]) * 60 + int(com[9:11])
     re_off_time = int(com[11:13]) * 60 + int(com[14:16])
-    # t = temp_read()
-    #t = one_wire()
     if rel_sel == '21':
         if t >= rel_temp:
             relay2(1)
@@ -488,12 +469,19 @@ def main():
             s_manu = False
             led_time(0)
             led_temp(0)
+            if ct_sw:
+                sw_remo_t = time.ticks_ms()
+                ct_sw = False
             status_s = '>巻上:' + side_manu(button)  # リモート　マニュアル
         else:
             s_manu = True
+        if time.ticks_diff(time.ticks_ms(), sw_remo_t) >= 600000 and command_s[:2] == '21':
+            sidewall_R(0)
+            sidewall_L(0)
+            sidewall_ex(0)
         if not sw_remote.value():  # マニュアルスイッチ####
             c_rem = c_rem + 1
-            if c_rem >= 5 and r_remo:
+            if c_rem >= 3  and r_remo:
                 sw_remo_t = time.ticks_ms()
                 sb_manu = not sb_manu
                 sw_remo = not sw_remo
@@ -522,6 +510,7 @@ def main():
         if button in ['07', '08']: relay_1(button)
         if time.ticks_diff(time.ticks_ms(), c_time) >= 1000:
             c_time = time.ticks_ms()
+            # t = temp_read()
             t =one_wire()
             if not on_test:
                 dt = rtc.readfrom_mem(0X68, 0, 7)
@@ -546,18 +535,15 @@ def main():
                         if command_s[9] == '1':  # 温度
                             mes_s = command_s[10:12] + '℃'
                             c_temp = int(command_s[10:12])
-                            #a_temp = one_wire()
                             led_time(0)
                             led_temp(1)
                             if sw_on:
-                                #if a_temp >= c_temp + 3:  # open
                                 if t >= c_temp + 3:  # open
                                     sw_on_t = time.ticks_ms()
                                     sw_on = False
                                     sidewall_R(r)
                                     sidewall_L(l)
                                     sidewall_ex(0)
-                                #elif a_temp < c_temp:  # close
                                 elif t < c_temp:  # close
                                     sw_on_t = time.ticks_ms()
                                     sw_on = False
@@ -648,15 +634,12 @@ def main():
                 led_test(0)
         if time.ticks_diff(time.ticks_ms(), ds_time) >= 30000:
             ds_time = time.ticks_ms()
-            dt = rtc.readfrom_mem(0X68, 0, 7)
             st_dt = '{:0>2}'.format(bx(dt[5])) + '-' + '{:0>2}'.format(bx(dt[4])) + '-' + '{:0>2}'.format(
                 bx(dt[2])) + ':' + '{:0>2}'.format(bx(dt[1])) + ':' + '{:0>2}'.format(bx(dt[0]))
-            # t = temp_read()
-            #t = one_wire()
             temp = '>温度:' + '{:0.1f}'.format(t) + '℃'
-            mes_k = 's0100001' + temp + status_k + status_d + status_s + status_r
-            uart_write(mes_k, adr)
-            print(mes_k, st_dt)
+            mes_d = 's0100001' + temp + status_k + status_d + status_s + status_r
+            uart_write(mes_d, adr)
+            print(mes_d, st_dt)
             time.sleep(0.1)
             # webserver 温度表示
             mes_temp = 'A01' + "{:05.1f}".format(t) + '温度:' + '{:0.1f}'.format(t) + '℃'
@@ -669,8 +652,24 @@ def main():
             print('adc ex', adc)
             """
         time.sleep(0.2)
-
-main()
+        
+ds_t = time.ticks_ms()
+while True:
+    try:
+        roms = ds.scan()
+        rom = roms[0]
+        print('DS18_address', rom)
+        break
+    except Exception as e:
+        print('温度センサーがありません', e)
+        led_test(1)
+        time.sleep(0.1)
+        led_test(0)
+        time.sleep(5)
+        if time.ticks_diff(time.ticks_ms(), ds_t) >= 30000:
+            ds_t = time.ticks_ms()
+            mes_k = 's0100001' + '>温度センサーエラー'
+            uart_write(mes_k, adr)
 try:
     xbee_reset()
     time.sleep(5)
@@ -679,3 +678,4 @@ try:
 except Exception as e:
     print(e)
     machine.reset()
+ 
