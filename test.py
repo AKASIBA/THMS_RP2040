@@ -1,4 +1,4 @@
-#XBEE自動リセット版
+#オリジナル
 
 import binascii
 import machine
@@ -168,16 +168,13 @@ def check_sum(hex_data):
 
 
 def uart_read():
-    uart_data = ''
-    str_data = ''
-    data_law = ''
     data_law = ser.readline()
+    str_data = ''
     if data_law:
         try:
             uart_data = str(binascii.hexlify(data_law).decode('utf-8'))
-            if uart_data[16:18] == '00':  # acknowledge
-                #print(uart_data)
-                str_data = 'sibainu'
+            if uart_data[6:8] == '8b':  # acknowledge
+                #str_data = 'sibainu'
                 print('DATA SEND SUCCESS !')
             elif uart_data[6:8] == '90':
                 print('reciev data')
@@ -645,7 +642,6 @@ def main():
             ds_time = time.ticks_ms()
             if xbee_inactive:
                 xbee_reset()
-                time.sleep(10)
             st_dt = '{:0>2}'.format(bx(dt[5])) + '-' + '{:0>2}'.format(bx(dt[4])) + '-' + '{:0>2}'.format(
                 bx(dt[2])) + ':' + '{:0>2}'.format(bx(dt[1])) + ':' + '{:0>2}'.format(bx(dt[0]))
             temp = '>温度:' + '{:0.1f}'.format(t) + '℃'
@@ -658,7 +654,18 @@ def main():
             uart_write(mes_temp, adr)
             print(mes_temp)
             xbee_inactive = True
-            
+            """
+            w = 0
+            while True:
+                if uart_read():
+                    break
+                w = w + 1
+                time.sleep(0.1)
+                if w > 100:
+                    print('data send fail')
+                    #xbee_reset()
+                    break
+            """
             """
             adc= adc_ex.read_u16()
             mes_adc = 'a01' + "{:05.1f}".format(t)+adc ###
@@ -693,5 +700,3 @@ except Exception as e:
     print(e)
     machine.reset()
  
-
-
